@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import csv
 import bottle
+import sqlite3
 
 application = bottle.default_app()
+db = sqlite3.connect(':memory:')
 
 
 @bottle.route('/')
@@ -21,14 +22,22 @@ def update_page():
     ip = bottle.request.query.ip or '0.0.0.0'
     password = bottle.request.query.password or 'null'
 
-    server = {'host': hostname, 'ip': ip, 'password': password}
+    cursor = db.cursor()
+    count = cursor.execute(
+        'SELECT COUNT(*) FROM data WHERE host=?',
+        (hostname,))
+    count = count.fetchone()[0]
 
-    with open('hosts.csv', 'wb') as f:
-        w = csv.DictWriter(f, server.keys())
-        w.writeheader()
-        w.writerow(server)
+    if count == 0:
+        cursor.execute(
+            'INSERT INTO data (ip, host, passw) VALUES (?, ?, ?)',
+            (ip, hostname, password))
+    else:
+        cursor.execute(
+            'UPDATE data SET ip=? WHERE host=? AND passw=?',
+            (ip, hostname, password))
 
-    return "update ok, ip=%s, hostname=%s" % (ip, hostname)
+    return 'update ok, ip=%s, hostname=%s' % (ip, hostname)
 
 
 @bottle.route('/get')
@@ -36,12 +45,24 @@ def get_page():
     hostname = bottle.request.query.host or 'null'
     password = bottle.request.query.password or 'null'
 
-    with open('hosts.csv', 'rb') as f:
-        r = csv.DictReader(f, delimiter=',')
-        resp = [line for line in r if line['host'] == hostname
-                and line['password'] == password]
+    cursor = db.cursor()
+    cursor.execute("SELECT * from data WHERE host=? AND passw=?",
+                   (hostname, password))
 
-    return 'Not found' if len(resp) == 0 else resp[0]['ip']
+    output = ''
+    for row in cursor:
+        output += str(row) + "\n"
+
+    return 'Not found' if len(output) == 0 else output
+
+
+def init_db():
+    cursor = db.cursor()
+    cursor.execute('CREATE TABLE IF NOT EXISTS data (ip CHAR(15) NOT NULL, \
+                   host CHAR(50) NOT NULL, passw CHAR(50) NOT NULL); ')
+
+
+init_db()
 
 # # debug
 # def server():
